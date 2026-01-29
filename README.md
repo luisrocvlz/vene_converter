@@ -24,5 +24,17 @@ Aplicación móvil desarrollada en Flutter para consultar y convertir tasas de c
 2. Ejecutar `flutter pub get`.
 3. Ejecutar `flutter run`.
 
+## 📦 Ruta de las APKs
+
+Si necesitas las APKs directamente, normalmente se generan en:
+
+* **APK de Flutter (build local):** [build/app/outputs/flutter-apk](build/app/outputs/flutter-apk) — aquí encontrarás `app-debug.apk` y `app-release.apk`.
+* **Módulo Android (Gradle):** [android/app/build/outputs/apk](android/app/build/outputs/apk) — APKs por variante (debug/release).
+* **Rutas alternativas:** [build/app/outputs](build/app/outputs) — otras salidas según la configuración de compilación.
+
+Para generar una APK localmente:
+
+`flutter build apk --release`
+
 ---
 Desarrollado con estilo por Luis Roca.
