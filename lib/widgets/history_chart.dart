@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,9 +35,64 @@ class _HistoryViewState extends State<HistoryView> {
   };
 
   @override
-  void initState() { 
-    super.initState(); 
-    _cargarDatosReales(); 
+  void initState() {
+    super.initState();
+    _cargarHistoricoDefault();
+  }
+
+  Future<void> _cargarHistoricoDefault() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Verificamos si ya cargamos el histórico base para no repetir el proceso innecesariamente
+      if (prefs.getBool('binance_history_v1_loaded') == true) {
+         _cargarDatosReales();
+         return;
+      }
+
+      // Cargamos el JSON local
+      final String jsonString =
+          await rootBundle.loadString('assets/binance_history_2025.json');
+      final List<dynamic> data = jsonDecode(jsonString);
+
+      // Procesamos los puntos para interpolar días faltantes
+      for (int i = 0; i < data.length - 1; i++) {
+        DateTime d1 = DateTime.parse(data[i]['date']);
+        double p1 = double.parse(data[i]['price'].toString());
+
+        DateTime d2 = DateTime.parse(data[i + 1]['date']);
+        double p2 = double.parse(data[i + 1]['price'].toString());
+
+        int daysDiff = d2.difference(d1).inDays;
+        if (daysDiff > 0) {
+          double step = (p2 - p1) / daysDiff;
+          for (int j = 0; j < daysDiff; j++) {
+            DateTime currentDay = d1.add(Duration(days: j));
+            double currentPrice = p1 + (step * j);
+            String key =
+                'history_Binance_${DateFormat('yyyy-MM-dd').format(currentDay)}';
+            // Solo escribimos si no existe para respetar datos reales si los hubiera
+            if (!prefs.containsKey(key)) {
+              await prefs.setDouble(key, currentPrice);
+            }
+          }
+        }
+      }
+      // Aseguramos guardar el último punto también
+      if (data.isNotEmpty) {
+        var last = data.last;
+        String key = 'history_Binance_${last['date']}';
+        if (!prefs.containsKey(key)) {
+          await prefs.setDouble(key, double.parse(last['price'].toString()));
+        }
+      }
+
+      await prefs.setBool('binance_history_v1_loaded', true);
+      _cargarDatosReales();
+    } catch (e) {
+      debugPrint("Error cargando histórico default: $e");
+      _cargarDatosReales();
+    }
   }
 
   // Carga los datos guardados en SharedPreferences para pintar la gráfica
@@ -151,8 +207,8 @@ class _HistoryViewState extends State<HistoryView> {
         title: Row(children: [Icon(Icons.info_outline, color: Colors.green), SizedBox(width: 10), Text("Historial de Tasas")]),
         content: const Text(
           "🔵 BCV: Los datos históricos se descargan de fuentes oficiales.\n\n"
-          "🟢 Binance: Esta tasa depende de la oferta y demanda en tiempo real. Su historial es local y se empezará a guardar en tu teléfono a partir de hoy.\n\n"
-          "Con el uso diario, verás cómo se construye la línea verde.",
+          "🟢 Binance: Esta tasa depende de la oferta y demanda en tiempo real. Se incluyen datos históricos de referencia y se actualiza con el uso diario.\n\n"
+          "Con el tiempo, verás cómo se precisa la línea verde.",
           style: TextStyle(fontSize: 14),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Entendido"))],
