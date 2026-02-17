@@ -308,6 +308,7 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
+
 }
 
 // --- VISTA CALCULADORA (Lógica local de UI) ---
@@ -431,6 +432,13 @@ class _CalculatorViewState extends State<CalculatorView> {
         duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  void _limpiarCampos() {
+    _bsController.clear();
+    _usdController.clear();
+    _eurController.clear();
+    _usdtController.clear();
   }
 
   void _mostrarComparativa() {
@@ -609,6 +617,13 @@ class _CalculatorViewState extends State<CalculatorView> {
                     widget.isLoading ? "Actualizando..." : "Actualizar Tasas",
                   ),
                 ),
+              ),
+              const SizedBox(width: 10),
+              IconButton.filledTonal(
+                onPressed: _limpiarCampos,
+                icon: const Icon(Icons.cleaning_services_outlined),
+                tooltip: "Limpiar campos",
+                style: IconButton.styleFrom(padding: const EdgeInsets.all(12)),
               ),
               const SizedBox(width: 10),
               IconButton.filledTonal(
