@@ -61,15 +61,17 @@ class _MainScreenState extends State<MainScreen> {
   // --- 1. Sincronización de Historial (Para la caché de la gráfica) ---
   Future<void> _sincronizarHistorialRemoto() async {
     try {
-      final response = await http.get(
+      final prefs = await SharedPreferences.getInstance();
+
+      // Sync BCV
+      final responseBcv = await http.get(
         Uri.parse('https://api.dolarvzla.com/public/exchange-rate/list'),
         headers: headersCombinados,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (responseBcv.statusCode == 200) {
+        final data = jsonDecode(responseBcv.body);
         final List rates = data['rates'];
-        final prefs = await SharedPreferences.getInstance();
 
         for (var item in rates) {
           String date = item['date'];
@@ -78,6 +80,32 @@ class _MainScreenState extends State<MainScreen> {
         }
         debugPrint(
           "Historial BCV sincronizado en background: ${rates.length} registros.",
+        );
+      }
+
+      // Sync Paralelo (Proxy para Binance histórico)
+      final responseParalelo = await http.get(
+        Uri.parse('https://ve.dolarapi.com/v1/historicos/dolares/paralelo'),
+      );
+
+      if (responseParalelo.statusCode == 200) {
+        final List data = jsonDecode(responseParalelo.body);
+        for (var item in data) {
+          if (item['fecha'] != null && item['promedio'] != null) {
+            String rawDate = item['fecha'].toString();
+            // La fecha viene en formato ISO (ej: 2024-02-14T00:00:00.000Z) o YYYY-MM-DD
+            String date = rawDate.split('T')[0];
+            double promedio = double.parse(item['promedio'].toString());
+
+            // Solo lo guardamos si no existe un valor previo guardado localmente
+            // para no sobrescribir la data real de Binance que el usuario haya guardado
+            if (!prefs.containsKey('history_Binance_$date')) {
+              await prefs.setDouble('history_Binance_$date', promedio);
+            }
+          }
+        }
+        debugPrint(
+          "Historial Dólar Paralelo sincronizado en background: ${data.length} registros.",
         );
       }
     } catch (e) {
