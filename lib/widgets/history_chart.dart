@@ -102,21 +102,46 @@ class _HistoryViewState extends State<HistoryView> {
   // Función auxiliar por si entramos al historial y está vacío
   Future<void> _intentarDescargaEmergencia() async {
     try {
-      final response = await http.get(
+      final prefs = await SharedPreferences.getInstance();
+      bool updated = false;
+
+      // Sincronizar BCV
+      final responseBcv = await http.get(
         Uri.parse('https://api.dolarvzla.com/public/exchange-rate/list'),
         headers: headersCombinados, 
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (responseBcv.statusCode == 200) {
+        final data = jsonDecode(responseBcv.body);
         final List rates = data['rates'];
-        final prefs = await SharedPreferences.getInstance();
         for (var item in rates) {
           String date = item['date']; 
           double usdBCV = double.parse(item['usd'].toString());
           await prefs.setDouble('history_BCV_$date', usdBCV);
         }
-        if(mounted) _cargarDatosReales(); // Recargamos al terminar
+        updated = true;
       }
+
+      // Sincronizar Paralelo (Proxy para Binance histórico)
+      final responseParalelo = await http.get(
+        Uri.parse('https://ve.dolarapi.com/v1/historicos/dolares/paralelo'),
+      );
+      if (responseParalelo.statusCode == 200) {
+        final List data = jsonDecode(responseParalelo.body);
+        for (var item in data) {
+          if (item['fecha'] != null && item['promedio'] != null) {
+            String rawDate = item['fecha'].toString();
+            String date = rawDate.split('T')[0];
+            double promedio = double.parse(item['promedio'].toString());
+
+            if (!prefs.containsKey('history_Binance_$date')) {
+              await prefs.setDouble('history_Binance_$date', promedio);
+            }
+          }
+        }
+        updated = true;
+      }
+
+      if(updated && mounted) _cargarDatosReales(); // Recargamos al terminar
     } catch (e) {
       debugPrint("Error descarga emergencia: $e");
     }
@@ -151,8 +176,8 @@ class _HistoryViewState extends State<HistoryView> {
         title: Row(children: [Icon(Icons.info_outline, color: Colors.green), SizedBox(width: 10), Text("Historial de Tasas")]),
         content: const Text(
           "🔵 BCV: Los datos históricos se descargan de fuentes oficiales.\n\n"
-          "🟢 Binance: Esta tasa depende de la oferta y demanda en tiempo real. Su historial es local y se empezará a guardar en tu teléfono a partir de hoy.\n\n"
-          "Con el uso diario, verás cómo se construye la línea verde.",
+          "🟢 Binance: Esta tasa depende de la oferta y demanda en tiempo real. Como Binance no provee un historial público, usamos el histórico de 'Dólar Paralelo' de DolarApi como referencia para mostrar la gráfica del último año.\n\n"
+          "Los valores actuales y futuros que se guarden en tu teléfono seguirán siendo obtenidos directamente desde Binance P2P en tiempo real.",
           style: TextStyle(fontSize: 14),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Entendido"))],
