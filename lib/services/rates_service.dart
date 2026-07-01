@@ -206,6 +206,14 @@ class RatesService {
 
     // Plan A: Binance P2P (PagoMovil, top‑3).
     try {
+      // Monto mínimo del anuncio: equivalente en Bs a 10 USD a tasa BCV.
+      // Se descartan así los anuncios de montos muy pequeños. Si aún no hay
+      // tasa BCV disponible, se usa un fallback razonable.
+      final double bcvUsd = snap.tasaBcvUsd > 0
+          ? snap.tasaBcvUsd
+          : (prefs.getDouble('last_val_bcv_usd') ?? 0);
+      final int transAmount = bcvUsd > 0 ? (bcvUsd * 10).round() : 10000;
+
       final cacheBuster = DateTime.now().millisecondsSinceEpoch.toString();
       final response = await http
           .post(
@@ -224,11 +232,11 @@ class RatesService {
               'tradeType': 'BUY',
               'asset': 'USDT',
               'countries': [],
-              'transAmount': 1500,
+              'transAmount': transAmount,
               'proMerchantAds': false,
               'shieldMerchantAds': false,
               'publisherType': 'merchant',
-              'payTypes': ['PagoMovil'],
+              'payTypes': ['PagoMovil', 'BancodeVenezuela', 'Banesco'],
               'classifies': ['mass', 'profession', 'router'],
             }),
           )
