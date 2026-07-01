@@ -176,9 +176,9 @@ class RatesService {
         ? sorted[n ~/ 2]
         : (sorted[n ~/ 2 - 1] + sorted[n ~/ 2]) / 2;
 
-    // Banda de tolerancia alrededor de la mediana (±10%): se descartan los
+    // Banda de tolerancia alrededor de la mediana (±2%): se descartan los
     // anuncios demasiado baratos (scam) y los demasiado caros (trampa).
-    const double banda = 0.10;
+    const double banda = 0.02;
     final double umbralInferior = mediana * (1 - banda);
     final double umbralSuperior = mediana * (1 + banda);
 
