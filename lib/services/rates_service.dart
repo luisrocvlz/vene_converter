@@ -236,7 +236,7 @@ class RatesService {
               'proMerchantAds': false,
               'shieldMerchantAds': false,
               'publisherType': 'merchant',
-              'payTypes': ['PagoMovil', 'BancodeVenezuela', 'Banesco'],
+              'payTypes': ['PagoMovil', 'BancoDeVenezuela', 'Banesco'],
               'classifies': ['mass', 'profession', 'router'],
             }),
           )
