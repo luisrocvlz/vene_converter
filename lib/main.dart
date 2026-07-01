@@ -1,14 +1,32 @@
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:workmanager/workmanager.dart';
+import 'background/rates_task.dart';
 import 'screens/home_screen.dart'; // Importamos la pantalla principal
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es_VE', null);
-  
-  await dotenv.load(fileName: ".env"); 
-  
+
+  // Tarea periódica para refrescar tasas y actualizar el widget Android.
+  try {
+    await Workmanager().initialize(
+      rangeCallbackDispatcher,
+      isInDebugMode: kDebugMode,
+    );
+    await Workmanager().registerPeriodicTask(
+      kRefreshTaskUnique,
+      kRefreshTaskName,
+      frequency: const Duration(minutes: 30),
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      initialDelay: const Duration(minutes: 1),
+    );
+  } catch (e) {
+    debugPrint('[WorkManager] init falló: $e');
+  }
+
   runApp(const VeneConverterApp());
 }
 
@@ -45,12 +63,18 @@ class _VeneConverterAppState extends State<VeneConverterApp> {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.light,
+        ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.dark,
+        ),
       ),
       home: MainScreen(
         toggleTheme: toggleTheme,

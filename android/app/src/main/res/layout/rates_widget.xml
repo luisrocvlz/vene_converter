@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/rates_widget_bg">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="VeneConverter"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:paddingBottom="6dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:weightSum="3">
+
+        <!-- BCV USD -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BCV $"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#E0E0E0" />
+
+            <TextView
+                android:id="@+id/bcv_usd_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#64B5F6"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:id="@+id/bcv_usd_cambio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-"
+                android:textSize="10sp"
+                android:textColor="#BDBDBD"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:id="@+id/fecha_bcv"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--:--"
+                android:textSize="9sp"
+                android:textColor="#9E9E9E"
+                android:paddingTop="1dp" />
+        </LinearLayout>
+
+        <!-- BCV EUR -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BCV €"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#E0E0E0" />
+
+            <TextView
+                android:id="@+id/bcv_eur_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#FFB74D"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:id="@+id/bcv_eur_cambio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-"
+                android:textSize="10sp"
+                android:textColor="#BDBDBD"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" "
+                android:textSize="9sp"
+                android:paddingTop="1dp" />
+        </LinearLayout>
+
+        <!-- USDT -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="USDT"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#E0E0E0" />
+
+            <TextView
+                android:id="@+id/usdt_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#81C784"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:id="@+id/usdt_cambio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-"
+                android:textSize="10sp"
+                android:textColor="#BDBDBD"
+                android:paddingTop="2dp" />
+
+            <TextView
+                android:id="@+id/fecha_binance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--:--"
+                android:textSize="9sp"
+                android:textColor="#9E9E9E"
+                android:paddingTop="1dp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

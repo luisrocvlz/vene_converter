@@ -1,12 +1,10 @@
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 
 // --- IMPORTS DE TUS WIDGETS PROPIOS ---
+import '../services/rates_service.dart';
 import '../widgets/history_chart.dart'; // La gráfica
 import '../widgets/currency_input.dart'; // Los inputs de texto
 import '../widgets/currency_cards.dart'; // Las tarjetas de arriba
@@ -42,231 +40,36 @@ class _MainScreenState extends State<MainScreen> {
   String fechaBinance = "--:--";
   bool isLoading = false;
 
-  // --- API KEY & HEADERS (Tu llave maestra) ---
-  final Map<String, String> headersCombinados = {
-    'x-dolarvzla-key': dotenv.env['API_KEY_DOLARVZLA'] ?? '',
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Referer': 'https://google.com',
-  };
-
   @override
   void initState() {
     super.initState();
     _fetchData();
-    _sincronizarHistorialRemoto();
+    RatesService.syncHistory();
   }
 
-  // --- 1. Sincronización de Historial (Para la caché de la gráfica) ---
-  Future<void> _sincronizarHistorialRemoto() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Sync BCV
-      final responseBcv = await http.get(
-        Uri.parse('https://api.dolarvzla.com/public/exchange-rate/list'),
-        headers: headersCombinados,
-      );
-
-      if (responseBcv.statusCode == 200) {
-        final data = jsonDecode(responseBcv.body);
-        final List rates = data['rates'];
-
-        for (var item in rates) {
-          String date = item['date'];
-          double usdBCV = double.parse(item['usd'].toString());
-          await prefs.setDouble('history_BCV_$date', usdBCV);
-        }
-        debugPrint(
-          "Historial BCV sincronizado en background: ${rates.length} registros.",
-        );
-      }
-
-      // Sync Paralelo (Proxy para Binance histórico)
-      final responseParalelo = await http.get(
-        Uri.parse('https://ve.dolarapi.com/v1/historicos/dolares/paralelo'),
-      );
-
-      if (responseParalelo.statusCode == 200) {
-        final List data = jsonDecode(responseParalelo.body);
-        for (var item in data) {
-          if (item['fecha'] != null && item['promedio'] != null) {
-            String rawDate = item['fecha'].toString();
-            // La fecha viene en formato ISO (ej: 2024-02-14T00:00:00.000Z) o YYYY-MM-DD
-            String date = rawDate.split('T')[0];
-            double promedio = double.parse(item['promedio'].toString());
-
-            // Solo lo guardamos si no existe un valor previo guardado localmente
-            // para no sobrescribir la data real de Binance que el usuario haya guardado
-            if (!prefs.containsKey('history_Binance_$date')) {
-              await prefs.setDouble('history_Binance_$date', promedio);
-            }
-          }
-        }
-        debugPrint(
-          "Historial Dólar Paralelo sincronizado en background: ${data.length} registros.",
-        );
-      }
-    } catch (e) {
-      debugPrint("Error sync background: $e");
-    }
-  }
-
-  // --- 2. Descarga de Tasas Actuales (Calculadora) ---
+  // --- Descarga de tasas actuales y refresco del widget Android ---
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
-    final prefs = await SharedPreferences.getInstance();
-
     try {
-      // PLAN A: API Principal (DolarVzla)
-      try {
-        final response = await http.get(
-          Uri.parse('https://api.dolarvzla.com/public/exchange-rate'),
-          headers: headersCombinados,
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final current = data['current'];
-          final change = data['changePercentage'];
-
-          double tempBcvUsd = double.parse(current['usd'].toString());
-          double tempBcvEur = double.parse(current['eur'].toString());
-
-          cambioBcvUsd = double.parse(change['usd'].toString());
-          cambioBcvEur = double.parse(change['eur'].toString());
-
-          // Guardar respaldo
-          await prefs.setDouble('last_val_bcv_usd', tempBcvUsd);
-          await prefs.setDouble('last_val_bcv_eur', tempBcvEur);
-          await prefs.setDouble('last_change_bcv_usd', cambioBcvUsd);
-          await prefs.setDouble('last_change_bcv_eur', cambioBcvEur);
-
-          String rawDate = current['date'];
-          try {
-            DateTime dateApi = DateTime.parse(rawDate);
-            fechaBcv = DateFormat('dd/MM').format(dateApi);
-            await prefs.setString('last_date_bcv', fechaBcv);
-          } catch (e) {
-            fechaBcv = rawDate;
-          }
-
-          tasaBcvUsd = tempBcvUsd;
-          tasaBcvEur = tempBcvEur;
-        } else {
-          throw Exception("API Error: ${response.statusCode}");
-        }
-      } catch (e) {
-        debugPrint("Fallo Plan A ($e). Ejecutando Plan B...");
-
-        // PLAN B: DolarApi (Respaldo)
-        try {
-          final responseUSD = await http.get(
-            Uri.parse('https://ve.dolarapi.com/v1/dolares/oficial'),
-          );
-          final responseEUR = await http.get(
-            Uri.parse('https://ve.dolarapi.com/v1/euros/oficial'),
-          );
-
-          if (responseUSD.statusCode == 200) {
-            final dataUSD = jsonDecode(responseUSD.body);
-            double tempBcvUsd = double.parse(dataUSD['promedio'].toString());
-            double tempBcvEur = (responseEUR.statusCode == 200)
-                ? double.parse(
-                    jsonDecode(responseEUR.body)['promedio'].toString(),
-                  )
-                : tempBcvUsd * 1.09;
-
-            // Recálculo manual de cambios
-            double lastUsd = prefs.getDouble('last_val_bcv_usd') ?? tempBcvUsd;
-            if (lastUsd > 0 && tempBcvUsd != lastUsd) {
-              cambioBcvUsd = ((tempBcvUsd - lastUsd) / lastUsd) * 100;
-            } else {
-              cambioBcvUsd = prefs.getDouble('last_change_bcv_usd') ?? 0.0;
-            }
-            // (Lógica similar para Euro omitida por brevedad, se asume 0 o previo)
-            cambioBcvEur = prefs.getDouble('last_change_bcv_eur') ?? 0.0;
-
-            tasaBcvUsd = tempBcvUsd;
-            tasaBcvEur = tempBcvEur;
-            fechaBcv = "BCV (Alt)";
-          }
-        } catch (e2) {
-          // PLAN C: Offline
-          tasaBcvUsd = prefs.getDouble('last_val_bcv_usd') ?? 0.0;
-          tasaBcvEur = prefs.getDouble('last_val_bcv_eur') ?? 0.0;
-          cambioBcvUsd = prefs.getDouble('last_change_bcv_usd') ?? 0.0;
-          cambioBcvEur = prefs.getDouble('last_change_bcv_eur') ?? 0.0;
-          fechaBcv = prefs.getString('last_date_bcv') ?? "--/--";
-        }
-      }
-
-      // BINANCE (P2P)
-      try {
-        String cacheBuster = DateTime.now().millisecondsSinceEpoch.toString();
-        final response = await http.post(
-          Uri.parse(
-            'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search?timestamp=$cacheBuster',
-          ),
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Content-Type': 'application/json',
-            'Origin': 'https://p2p.binance.com',
-          },
-          body: jsonEncode({
-            "asset": "USDT",
-            "fiat": "VES",
-            "merchantCheck": true,
-            "transAmount": 1500,
-            "page": 1,
-            "rows": 5,
-            "payTypes": ["PagoMovil"],
-            "tradeType": "BUY",
-          }),
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          if (data['data'] != null && data['data'].isNotEmpty) {
-            var lista = data['data'];
-            double suma = 0;
-            int count = 0;
-            int maxItems = lista.length > 3 ? 3 : lista.length;
-            for (int i = 0; i < maxItems; i++) {
-              suma += double.parse(lista[i]['adv']['price']);
-              count++;
-            }
-            double tempBinance = suma / count;
-
-            double lastBinance =
-                prefs.getDouble('last_val_binance') ?? tempBinance;
-            if (lastBinance > 0 && tempBinance != lastBinance) {
-              cambioBinance = ((tempBinance - lastBinance) / lastBinance) * 100;
-            } else {
-              cambioBinance = 0.0;
-            }
-
-            await prefs.setDouble('last_val_binance', tempBinance);
-            tasaBinance = tempBinance;
-            fechaBinance = DateFormat('HH:mm a').format(DateTime.now());
-
-            // Guardar para historial local
-            String hoy = DateFormat('yyyy-MM-dd').format(DateTime.now());
-            await prefs.setDouble('history_Binance_$hoy', tasaBinance);
-          }
-        }
-      } catch (e) {
-        tasaBinance = prefs.getDouble('last_val_binance') ?? 0.0;
-      }
-
-      setState(() => isLoading = false);
-    } catch (e) {
-      setState(() => isLoading = false);
+      final snap = await RatesService.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        tasaBcvUsd = snap.tasaBcvUsd;
+        tasaBcvEur = snap.tasaBcvEur;
+        tasaBinance = snap.tasaBinance;
+        cambioBcvUsd = snap.cambioBcvUsd;
+        cambioBcvEur = snap.cambioBcvEur;
+        cambioBinance = snap.cambioBinance;
+        fechaBcv = snap.fechaBcv;
+        fechaBinance = snap.fechaBinance;
+        isLoading = false;
+      });
+      // Empujar la snapshot al widget de la pantalla de inicio.
+      unawaited(RatesService.pushToWidget(snap));
+    } catch (_) {
+      if (mounted) setState(() => isLoading = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = [
@@ -402,10 +205,12 @@ class _CalculatorViewState extends State<CalculatorView> {
     double usd = _parse(v);
     double bs = usd * widget.tasaBcvUsd;
     _bsController.text = _fmt(bs);
-    if (widget.tasaBcvEur > 0)
+    if (widget.tasaBcvEur > 0) {
       _eurController.text = _fmt(bs / widget.tasaBcvEur);
-    if (widget.tasaBinance > 0)
+    }
+    if (widget.tasaBinance > 0) {
       _usdtController.text = _fmt(bs / widget.tasaBinance);
+    }
     _isUpdating = false;
   }
 
@@ -415,10 +220,12 @@ class _CalculatorViewState extends State<CalculatorView> {
     double eur = _parse(v);
     double bs = eur * widget.tasaBcvEur;
     _bsController.text = _fmt(bs);
-    if (widget.tasaBcvUsd > 0)
+    if (widget.tasaBcvUsd > 0) {
       _usdController.text = _fmt(bs / widget.tasaBcvUsd);
-    if (widget.tasaBinance > 0)
+    }
+    if (widget.tasaBinance > 0) {
       _usdtController.text = _fmt(bs / widget.tasaBinance);
+    }
     _isUpdating = false;
   }
 
@@ -428,10 +235,12 @@ class _CalculatorViewState extends State<CalculatorView> {
     double usdt = _parse(v);
     double bs = usdt * widget.tasaBinance;
     _bsController.text = _fmt(bs);
-    if (widget.tasaBcvUsd > 0)
+    if (widget.tasaBcvUsd > 0) {
       _usdController.text = _fmt(bs / widget.tasaBcvUsd);
-    if (widget.tasaBcvEur > 0)
+    }
+    if (widget.tasaBcvEur > 0) {
       _eurController.text = _fmt(bs / widget.tasaBcvEur);
+    }
     _isUpdating = false;
   }
 
@@ -439,19 +248,23 @@ class _CalculatorViewState extends State<CalculatorView> {
     if (_isUpdating) return;
     _isUpdating = true;
     double bs = _parse(v);
-    if (widget.tasaBcvUsd > 0)
+    if (widget.tasaBcvUsd > 0) {
       _usdController.text = _fmt(bs / widget.tasaBcvUsd);
-    if (widget.tasaBcvEur > 0)
+    }
+    if (widget.tasaBcvEur > 0) {
       _eurController.text = _fmt(bs / widget.tasaBcvEur);
-    if (widget.tasaBinance > 0)
+    }
+    if (widget.tasaBinance > 0) {
       _usdtController.text = _fmt(bs / widget.tasaBinance);
+    }
     _isUpdating = false;
   }
 
   void _copiar(String txt, String coin) {
     String msg = "$txt $coin";
-    if (coin != "Bs" && _bsController.text.isNotEmpty)
+    if (coin != "Bs" && _bsController.text.isNotEmpty) {
       msg += " = Bs. ${_bsController.text}";
+    }
     Clipboard.setData(ClipboardData(text: msg));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -459,6 +272,16 @@ class _CalculatorViewState extends State<CalculatorView> {
         duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  void _limpiarCampos() {
+    setState(() {
+      _bsController.clear();
+      _usdController.clear();
+      _eurController.clear();
+      _usdtController.clear();
+      _isUpdating = false;
+    });
   }
 
   void _mostrarComparativa() {
@@ -637,6 +460,13 @@ class _CalculatorViewState extends State<CalculatorView> {
                     widget.isLoading ? "Actualizando..." : "Actualizar Tasas",
                   ),
                 ),
+              ),
+              const SizedBox(width: 10),
+              IconButton.filledTonal(
+                onPressed: _limpiarCampos,
+                icon: const Icon(Icons.backspace_outlined),
+                tooltip: "Limpiar Campos",
+                style: IconButton.styleFrom(padding: const EdgeInsets.all(12)),
               ),
               const SizedBox(width: 10),
               IconButton.filledTonal(
