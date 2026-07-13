@@ -415,7 +415,7 @@ class _HistoryViewState extends State<HistoryView> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Diferencia entre la tasa Binance y la tasa BCV. ${summary.relacionActual}',
+            'Diferencia entre las tasas. ${summary.relacionActual}',
             style: TextStyle(fontSize: 11, color: colorScheme.outline),
           ),
         ],
@@ -510,7 +510,7 @@ class _HistoryViewState extends State<HistoryView> {
         children.add(
           TextSpan(
             text:
-                '\nBrecha BCV vs Binance: ${_formatearBs(brechaBs, signed: true)} Bs (${_formatearPorcentaje(point.brechaPorcentaje)})\n$relacion',
+                '\nBrecha: ${_formatearBs(brechaBs, signed: true)} Bs (${_formatearPorcentaje(point.brechaPorcentaje)})\n$relacion',
             style: const TextStyle(
               color: Colors.orangeAccent,
               fontSize: 10,
