@@ -16,6 +16,10 @@ const String _kBcvSyncKey = 'last_sync_bcv_history_v7';
 const String _kUsdtSyncKey = 'last_sync_usdt_history_v7';
 
 const String _kAndroidWidgetName = 'RatesWidgetProvider';
+const String _kBcvUsdEndpoint = 'https://ve.dolarapi.com/v1/dolares/oficial';
+const String _kBcvEurEndpoint = 'https://ve.dolarapi.com/v1/euros/oficial';
+const String _kBcvCdnEndpoint = 'https://rates.dolarvzla.com/bcv/current.json';
+const Duration _kVenezuelaUtcOffset = Duration(hours: -4);
 
 class RatesSnapshot {
   double tasaBcvUsd;
@@ -69,91 +73,189 @@ class RatesService {
     return snap;
   }
 
-  // ── BCV (Plan A: dolarapi, Plan B: cache) ─────────────────────────────────
+  // ── BCV (Plan A: dolarapi vigente, Plan B: CDN, Plan C: cache) ────────────
   static Future<void> _fetchBcv(
     SharedPreferences prefs,
     RatesSnapshot snap,
   ) async {
     try {
-      final respUsd = await http
-          .get(
-            Uri.parse('https://ve.dolarapi.com/v1/dolares/oficial'),
-            headers: _commonHeaders,
-          )
-          .timeout(const Duration(seconds: 15));
-      final respEur = await http
-          .get(
-            Uri.parse('https://ve.dolarapi.com/v1/euros/oficial'),
-            headers: _commonHeaders,
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (respUsd.statusCode != 200) {
-        throw Exception('BCV USD HTTP ${respUsd.statusCode}');
-      }
-
-      final dataUsd = jsonDecode(respUsd.body);
-      final double tempBcvUsd = double.parse(dataUsd['promedio'].toString());
-      final double tempBcvEur = (respEur.statusCode == 200)
-          ? double.parse(jsonDecode(respEur.body)['promedio'].toString())
-          : tempBcvUsd * 1.09;
-
-      // Recalcular % cambio contra el último valor cacheado.
-      final double lastUsd = prefs.getDouble('last_val_bcv_usd') ?? tempBcvUsd;
-      final double lastEur = prefs.getDouble('last_val_bcv_eur') ?? tempBcvEur;
-      double cambioUsd = 0;
-      double cambioEur = 0;
-      if (lastUsd > 0 && tempBcvUsd != lastUsd) {
-        cambioUsd = ((tempBcvUsd - lastUsd) / lastUsd) * 100;
-      } else {
-        cambioUsd = prefs.getDouble('last_change_bcv_usd') ?? 0;
-      }
-      if (lastEur > 0 && tempBcvEur != lastEur) {
-        cambioEur = ((tempBcvEur - lastEur) / lastEur) * 100;
-      } else {
-        cambioEur = prefs.getDouble('last_change_bcv_eur') ?? 0;
-      }
-
-      // Formato fecha.
-      String fechaBcv;
-      try {
-        final raw = (dataUsd['fechaActualizacion'] ?? '').toString();
-        if (raw.isEmpty) {
-          fechaBcv = DateFormat('dd/MM').format(DateTime.now());
-        } else {
-          final dateApi = DateTime.parse(raw).toLocal();
-          fechaBcv = DateFormat('dd/MM HH:mm').format(dateApi);
-        }
-      } catch (_) {
-        fechaBcv = DateFormat('dd/MM').format(DateTime.now());
-      }
-
-      snap
-        ..tasaBcvUsd = tempBcvUsd
-        ..tasaBcvEur = tempBcvEur
-        ..cambioBcvUsd = cambioUsd
-        ..cambioBcvEur = cambioEur
-        ..fechaBcv = fechaBcv;
-
-      // Persistir.
-      await prefs.setDouble('last_val_bcv_usd', tempBcvUsd);
-      await prefs.setDouble('last_val_bcv_eur', tempBcvEur);
-      await prefs.setDouble('last_change_bcv_usd', cambioUsd);
-      await prefs.setDouble('last_change_bcv_eur', cambioEur);
-      await prefs.setString('last_date_bcv', fechaBcv);
-
-      // Guardar también en el historial local del día.
-      final hoy = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      await prefs.setDouble('history_BCV_$hoy', tempBcvUsd);
-    } catch (e) {
-      debugPrint('[BCV] Fallo Plan A, usando cache: $e');
-      snap
-        ..tasaBcvUsd = prefs.getDouble('last_val_bcv_usd') ?? 0
-        ..tasaBcvEur = prefs.getDouble('last_val_bcv_eur') ?? 0
-        ..cambioBcvUsd = prefs.getDouble('last_change_bcv_usd') ?? 0
-        ..cambioBcvEur = prefs.getDouble('last_change_bcv_eur') ?? 0
-        ..fechaBcv = prefs.getString('last_date_bcv') ?? '--/--';
+      await _fetchBcvFromDolarApi(prefs, snap);
+      return;
+    } catch (error) {
+      debugPrint('[BCV] Plan A no usable, probando CDN: $error');
     }
+
+    try {
+      await _fetchBcvFromCdn(prefs, snap);
+      return;
+    } catch (error) {
+      debugPrint('[BCV] Fallo Plan B (CDN), usando cache: $error');
+    }
+
+    _useCachedBcv(prefs, snap);
+  }
+
+  static Future<void> _fetchBcvFromDolarApi(
+    SharedPreferences prefs,
+    RatesSnapshot snap,
+  ) async {
+    final respUsd = await http
+        .get(Uri.parse(_kBcvUsdEndpoint), headers: _commonHeaders)
+        .timeout(const Duration(seconds: 15));
+    final respEur = await http
+        .get(Uri.parse(_kBcvEurEndpoint), headers: _commonHeaders)
+        .timeout(const Duration(seconds: 15));
+
+    if (respUsd.statusCode != 200) {
+      throw Exception('BCV USD HTTP ${respUsd.statusCode}');
+    }
+    if (respEur.statusCode != 200) {
+      throw Exception('BCV EUR HTTP ${respEur.statusCode}');
+    }
+
+    final dataUsd = jsonDecode(respUsd.body);
+    final dataEur = jsonDecode(respEur.body);
+    final double tempBcvUsd = _jsonDouble(dataUsd['promedio'], 'USD promedio');
+    final double tempBcvEur = _jsonDouble(dataEur['promedio'], 'EUR promedio');
+    final String usdDateKey = _dolarApiDateKey(dataUsd['fechaActualizacion']);
+    final String eurDateKey = _dolarApiDateKey(dataEur['fechaActualizacion']);
+    final String todayKey = _todayVenezuelaKey();
+
+    if (usdDateKey != todayKey || eurDateKey != todayKey) {
+      throw Exception(
+        'fecha desactualizada USD=$usdDateKey EUR=$eurDateKey hoy=$todayKey',
+      );
+    }
+
+    final double lastUsd = prefs.getDouble('last_val_bcv_usd') ?? tempBcvUsd;
+    final double lastEur = prefs.getDouble('last_val_bcv_eur') ?? tempBcvEur;
+    final double cambioUsd = (lastUsd > 0 && tempBcvUsd != lastUsd)
+        ? ((tempBcvUsd - lastUsd) / lastUsd) * 100
+        : (prefs.getDouble('last_change_bcv_usd') ?? 0);
+    final double cambioEur = (lastEur > 0 && tempBcvEur != lastEur)
+        ? ((tempBcvEur - lastEur) / lastEur) * 100
+        : (prefs.getDouble('last_change_bcv_eur') ?? 0);
+
+    await _applyBcvRate(
+      prefs,
+      snap,
+      usd: tempBcvUsd,
+      eur: tempBcvEur,
+      cambioUsd: cambioUsd,
+      cambioEur: cambioEur,
+      fechaBcv: _formatDolarApiBcvDate(dataUsd['fechaActualizacion']),
+      historyDateKey: usdDateKey,
+    );
+  }
+
+  static Future<void> _fetchBcvFromCdn(
+    SharedPreferences prefs,
+    RatesSnapshot snap,
+  ) async {
+    final resp = await http
+        .get(Uri.parse(_kBcvCdnEndpoint), headers: _commonHeaders)
+        .timeout(const Duration(seconds: 15));
+
+    if (resp.statusCode != 200) {
+      throw Exception('CDN HTTP ${resp.statusCode}');
+    }
+
+    final data = jsonDecode(resp.body);
+    final current = data['current'];
+    final changePercentage = data['changePercentage'];
+    if (current is! Map || changePercentage is! Map) {
+      throw const FormatException('CDN BCV sin current/changePercentage');
+    }
+
+    final String dateKey = (current['date'] ?? '').toString();
+    final DateTime? currentDate = DateTime.tryParse(dateKey);
+    if (currentDate == null) {
+      throw FormatException('fecha CDN invalida: $dateKey');
+    }
+    final String historyDateKey = DateFormat('yyyy-MM-dd').format(currentDate);
+
+    await _applyBcvRate(
+      prefs,
+      snap,
+      usd: _jsonDouble(current['usd'], 'CDN current.usd'),
+      eur: _jsonDouble(current['eur'], 'CDN current.eur'),
+      cambioUsd: _jsonDouble(
+        changePercentage['usd'],
+        'CDN changePercentage.usd',
+      ),
+      cambioEur: _jsonDouble(
+        changePercentage['eur'],
+        'CDN changePercentage.eur',
+      ),
+      fechaBcv: DateFormat('dd/MM').format(currentDate),
+      historyDateKey: historyDateKey,
+    );
+  }
+
+  static Future<void> _applyBcvRate(
+    SharedPreferences prefs,
+    RatesSnapshot snap, {
+    required double usd,
+    required double eur,
+    required double cambioUsd,
+    required double cambioEur,
+    required String fechaBcv,
+    required String historyDateKey,
+  }) async {
+    snap
+      ..tasaBcvUsd = usd
+      ..tasaBcvEur = eur
+      ..cambioBcvUsd = cambioUsd
+      ..cambioBcvEur = cambioEur
+      ..fechaBcv = fechaBcv;
+
+    await prefs.setDouble('last_val_bcv_usd', usd);
+    await prefs.setDouble('last_val_bcv_eur', eur);
+    await prefs.setDouble('last_change_bcv_usd', cambioUsd);
+    await prefs.setDouble('last_change_bcv_eur', cambioEur);
+    await prefs.setString('last_date_bcv', fechaBcv);
+    await prefs.setDouble('history_BCV_$historyDateKey', usd);
+  }
+
+  static void _useCachedBcv(SharedPreferences prefs, RatesSnapshot snap) {
+    snap
+      ..tasaBcvUsd = prefs.getDouble('last_val_bcv_usd') ?? 0
+      ..tasaBcvEur = prefs.getDouble('last_val_bcv_eur') ?? 0
+      ..cambioBcvUsd = prefs.getDouble('last_change_bcv_usd') ?? 0
+      ..cambioBcvEur = prefs.getDouble('last_change_bcv_eur') ?? 0
+      ..fechaBcv = prefs.getString('last_date_bcv') ?? '--/--';
+  }
+
+  static String _todayVenezuelaKey() {
+    return DateFormat('yyyy-MM-dd').format(_nowInVenezuela());
+  }
+
+  static DateTime _nowInVenezuela() {
+    return DateTime.now().toUtc().add(_kVenezuelaUtcOffset);
+  }
+
+  static String _dolarApiDateKey(dynamic value) {
+    return DateFormat('yyyy-MM-dd').format(_dolarApiDateTime(value));
+  }
+
+  static String _formatDolarApiBcvDate(dynamic value) {
+    return DateFormat('dd/MM HH:mm').format(_dolarApiDateTime(value));
+  }
+
+  static DateTime _dolarApiDateTime(dynamic value) {
+    final raw = (value ?? '').toString();
+    if (raw.isEmpty) {
+      throw const FormatException('fechaActualizacion BCV vacia');
+    }
+    return DateTime.parse(raw).toUtc().add(_kVenezuelaUtcOffset);
+  }
+
+  static double _jsonDouble(dynamic value, String fieldName) {
+    final parsed = double.tryParse(value.toString());
+    if (parsed == null) {
+      throw FormatException('$fieldName invalido: $value');
+    }
+    return parsed;
   }
 
   /// Promedio robusto de precios USDT (Binance P2P).
@@ -277,8 +379,7 @@ class RatesService {
     }
 
     if (tempBinance != null) {
-      final lastBinance =
-          prefs.getDouble('last_val_binance') ?? tempBinance;
+      final lastBinance = prefs.getDouble('last_val_binance') ?? tempBinance;
       double cambio = prefs.getDouble('last_change_binance') ?? 0;
       if (lastBinance > 0 && tempBinance != lastBinance) {
         cambio = ((tempBinance - lastBinance) / lastBinance) * 100;
@@ -314,10 +415,8 @@ class RatesService {
     final prefs = await SharedPreferences.getInstance();
     final hoy = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    final bool needsBcv =
-        force || prefs.getString(_kBcvSyncKey) != hoy;
-    final bool needsUsdt =
-        force || prefs.getString(_kUsdtSyncKey) != hoy;
+    final bool needsBcv = force || prefs.getString(_kBcvSyncKey) != hoy;
+    final bool needsUsdt = force || prefs.getString(_kUsdtSyncKey) != hoy;
 
     if (!needsBcv && !needsUsdt) return false;
 
@@ -384,8 +483,7 @@ class RatesService {
 
   static Future<void> _seedUsdtFromAsset(SharedPreferences prefs) async {
     try {
-      final jsonString =
-          await rootBundle.loadString('assets/history.json');
+      final jsonString = await rootBundle.loadString('assets/history.json');
       final data = jsonDecode(jsonString);
       final List categories = data['categories'];
       final List items = data['items'];
@@ -405,10 +503,7 @@ class RatesService {
         if (d == null || !d.isBefore(kUsdtCutover)) continue;
         final key = 'history_Binance_$fecha';
         if (prefs.containsKey(key)) continue; // no sobrescribir
-        await prefs.setDouble(
-          key,
-          double.parse(values[i].toString()),
-        );
+        await prefs.setDouble(key, double.parse(values[i].toString()));
       }
     } catch (e) {
       debugPrint('[Seed USDT] error: $e');
