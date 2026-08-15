@@ -9,6 +9,7 @@ import '../widgets/history_chart.dart'; // La gráfica
 import '../widgets/currency_input.dart'; // Los inputs de texto
 import '../widgets/currency_cards.dart'; // Las tarjetas de arriba
 import '../widgets/common_widgets.dart'; // Reloj y otros
+import '../widgets/cesta_view.dart'; // La vista de cesta
 
 class MainScreen extends StatefulWidget {
   final VoidCallback toggleTheme;
@@ -86,6 +87,11 @@ class _MainScreenState extends State<MainScreen> {
         isLoading: isLoading,
       ),
       const HistoryView(), // <--- Importado desde widgets/history_chart.dart
+      CestaView(
+        tasaBcvUsd: tasaBcvUsd,
+        tasaBcvEur: tasaBcvEur,
+        tasaBinance: tasaBinance,
+      ),
     ];
 
     return Scaffold(
@@ -134,6 +140,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.show_chart),
             selectedIcon: Icon(Icons.ssid_chart),
             label: 'Historial',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.shopping_basket_outlined),
+            selectedIcon: Icon(Icons.shopping_basket),
+            label: 'Cesta',
           ),
         ],
       ),
